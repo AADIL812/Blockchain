@@ -1,32 +1,73 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "hardhat/console.sol"; // This is fine to keep for debugging
+import "hardhat/console.sol";
 
 contract PasswordVault {
     
-    // 1. ADD THIS COUNTER
-    uint256 private _totalPasswords;
+    // --- DATA STRUCTURE ---
+    struct Credential {
+        string service;
+        string username;
+        string encryptedPassword;
+        string[] shares;
+    }
 
-    mapping(address => string) public passwords;
+    mapping(address => Credential[]) public userCredentials;
 
-    // 2. UPDATE YOUR EVENT to include a timestamp
-    event PasswordStored(address indexed user, uint256 timestamp);
+    // --- DASHBOARD FEATURES ---
+    uint256 private _totalCredentialsStored;
+    mapping(address => uint256) private _userCredentialCount;
 
-    function store(string calldata encryptedPassword) external {
-        passwords[msg.sender] = encryptedPassword;
+    // --- MODIFIED EVENT ---
+    // We've added userCount as a new parameter to the event
+    event CredentialStored(
+        address indexed user, 
+        string service, 
+        uint256 timestamp, 
+        uint256 userCount // <-- NEW
+    );
+
+    // --- CORE FUNCTIONS ---
+    function storeCredential(
+        string calldata _service,
+        string calldata _username,
+        string calldata _encryptedPassword,
+        string[] calldata _shares
+    ) external {
+        userCredentials[msg.sender].push(
+            Credential({
+                service: _service,
+                username: _username,
+                encryptedPassword: _encryptedPassword,
+                shares: _shares
+            })
+        );
+
+        // --- INCREMENT COUNTERS ---
+        _totalCredentialsStored++;
+        _userCredentialCount[msg.sender]++;
         
-        // 3. UPDATE the 'store' function
-        _totalPasswords++; // Increment the counter
-        emit PasswordStored(msg.sender, block.timestamp); // Emit the new event
+        // --- MODIFIED EMIT ---
+        // We now emit the new user-specific count
+        emit CredentialStored(
+            msg.sender, 
+            _service, 
+            block.timestamp, 
+            _userCredentialCount[msg.sender] // <-- NEW
+        );
     }
 
-    function get(address user) external view returns (string memory) {
-        return passwords[user];
+    function getCredentials() external view returns (Credential[] memory) {
+        return userCredentials[msg.sender];
     }
 
-    // 4. ADD THIS NEW FUNCTION for the dashboard
-    function getTotalPasswordCount() public view returns (uint256) {
-        return _totalPasswords;
+    // --- DASHBOARD GETTER FUNCTIONS ---
+    function getTotalCredentialCount() public view returns (uint256) {
+        return _totalCredentialsStored;
+    }
+
+    function getMyCredentialCount() public view returns (uint256) {
+        return _userCredentialCount[msg.sender];
     }
 }
