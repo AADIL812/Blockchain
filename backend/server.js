@@ -1,14 +1,21 @@
+// backend/server.js (Fixed WebSocket Version)
 const express = require("express");
 const cors = require("cors");
 const { ethers } = require("ethers");
+const fs = require("fs").promises; // For writing to the JSON file
+const path = require("path");
 require("dotenv").config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Provider
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
+// --- Database File Setup ---
+const DATA_FILE = path.join(__dirname, "analytics.json");
+
+// --- Ethers Setup (THE FIX IS HERE) ---
+// We now use WebSocketProvider for a stable event connection
+const provider = new ethers.WebSocketProvider("ws://127.0.0.1:8545");
 
 // Hardhat account private key (account #0)
 const PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -17,82 +24,105 @@ const PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf
 const signer = new ethers.Wallet(PRIVATE_KEY, provider);
 
 // Load ABI
-const contractJson = require("./PasswordVault.json"); // Make sure this file is in your backend folder
+const contractJson = require("./PasswordVault.json");
 const vault = new ethers.Contract(
-     process.env.VAULT_ADDRESS,
-     contractJson.abi,
-     signer
+  process.env.VAULT_ADDRESS,
+  contractJson.abi,
+  signer
 );
 
-// =================================================
-// --- YOUR EXISTING ROUTES ---
-// =================================================
+// Helper function to read the JSON file
+async function readData() {
+  try {
+    // Check if file exists
+    await fs.access(DATA_FILE);
+    // Read and parse the file
+    const data = await fs.readFile(DATA_FILE, "utf-8");
+    return JSON.parse(data);
+  } catch (error) {
+    // If file doesn't exist or is empty, return an empty array
+    return [];
+  }
+}
 
-app.post("/store", async (req, res) => {
-     const { addr, ciphertext } = req.body;
-     try {
-         const tx = await vault.store(ciphertext);
-         await tx.wait();
-         res.json({ ok: true, txHash: tx.hash });
-     } catch (err) {
-         console.error(err);
-         res.status(500).json({ error: err.message });
-     }
-});
-
-app.get("/get/:addr", async (req, res) => {
-     try {
-         const ciphertext = await vault.get(req.params.addr);
-         res.json({ ciphertext });
-     } catch (err) {
-         console.error(err);
-         res.status(500).json({ error: err.message });
-     }
-});
+// Helper function to write to the JSON file
+async function writeData(data) {
+  try {
+    await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch (error) {
+    console.error("Error writing to JSON file:", error);
+  }
+}
 
 // =================================================
-// --- NEW DASHBOARD ROUTE (RECTIFIED) ---
+// --- DASHBOARD API (READS FROM JSON FILE) ---
 // =================================================
-
 app.get("/api/dashboard-stats", async (req, res) => {
-   try {
-     // 1. Get total password count from the new contract function
-     const totalCount = await vault.getTotalPasswordCount();
+  try {
+    const allActivities = await readData();
+    const totalPasswords = allActivities.length;
 
-     // 2. Get recent "PasswordStored" events
-     const filter = vault.filters.PasswordStored();
-     
-    // Get the current latest block number
-    const latestBlock = await provider.getBlockNumber();
+    // Get the last 5, reversed (most recent first)
+    const recentActivities = allActivities.slice(-5).reverse().map(act => ({
+      ...act,
+      timestamp: new Date(act.timestamp).toLocaleString()
+    }));
     
-    // Calculate the block 1000 blocks ago (but don't go below block 0)
-    const fromBlock = Math.max(0, latestBlock - 1000);
-    
-    // Query from that calculated block up to the latest block
-    const events = await vault.queryFilter(filter, fromBlock, latestBlock);
-
-     // Map events to a clean format
-     const recentActivities = events.map(event => ({
-       user: event.args.user,
-       website: event.args.user, // Placeholder, as your event doesn't have 'website'
-       timestamp: new Date(Number(event.args.timestamp) * 1000).toLocaleString(), // Use Number() here too
-       blockNumber: event.blockNumber,
-     }));
-
-     res.json({
-      // --- FIX 1 ---
-       totalPasswords: Number(totalCount), // Changed from totalCount.toNumber()
-       // Send the 5 most recent events, reversed
-       recentActivities: recentActivities.reverse().slice(0, 5) 
-     });
-
-   } catch (error) {
-     console.error("Error fetching dashboard data:", error);
-      // --- FIX 2 ---
-     res.status(500).json({ error: 'Failed to fetch dashboard data' }); // Removed the stray "D;"
-   }
+    res.json({
+      totalPasswords: totalPasswords,
+      recentActivities: recentActivities,
+    });
+  } catch (error) {
+    console.error("Error in /api/dashboard-stats:", error);
+    res.status(500).json({ error: 'Failed to fetch dashboard data' });
+  }
 });
 
-// --- START SERVER ---
+// =================================================
+// --- BLOCKCHAIN EVENT LISTENER (WRITES TO JSON) ---
+// =================================================
+async function listenForEvents() {
+  console.log("Listening for CredentialStored events...");
+
+  // Use the event name from your contract: "CredentialStored"
+  vault.on("CredentialStored", async (user, service, timestamp, userCount, event) => {
+    
+    console.log(`[EVENT] CredentialStored: User=${user}, Service=${service}`);
+
+    // Create the new event object
+    const newActivity = {
+      user_address: user,
+      service: service,
+      user_total_credentials: Number(userCount),
+      timestamp: new Date(Number(timestamp) * 1000).toISOString(),
+    };
+
+    // --- This is the inefficient part ---
+    // 1. Read all existing data
+    const allActivities = await readData();
+    // 2. Add the new one
+    allActivities.push(newActivity);
+    // 3. Write all data back to the file
+    await writeData(allActivities);
+    
+    console.log(`Successfully appended event data to analytics.json`);
+  });
+
+  // Keep the script alive. WebSocket providers can sometimes close.
+  // This will log if the connection drops unexpectedly.
+  provider.websocket.on("close", (code) => {
+    console.error(`WebSocket connection closed (Code: ${code}). Restarting listener...`);
+    // You might need a more robust restart logic here for production,
+    // but for local testing, this shows the connection dropped.
+    // Re-running the listener:
+    listenForEvents();
+  });
+}
+
+// --- START SERVER AND LISTENER ---
 const PORT = 3000;
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  // Start the event listener
+  listenForEvents();
+});

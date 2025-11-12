@@ -1,0 +1,32 @@
+[
+  {
+    "user_address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "service": "gfg",
+    "user_total_credentials": 1,
+    "timestamp": "2025-11-11T20:19:41.000Z"
+  },
+  {
+    "user_address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "service": "youtube",
+    "user_total_credentials": 2,
+    "timestamp": "2025-11-11T20:26:35.000Z"
+  },
+  {
+    "user_address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "service": "vtop",
+    "user_total_credentials": 1,
+    "timestamp": "2025-11-12T03:46:04.000Z"
+  },
+  {
+    "user_address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "service": "instagram",
+    "user_total_credentials": 2,
+    "timestamp": "2025-11-12T04:04:30.000Z"
+  },
+  {
+    "user_address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "service": "youtube",
+    "user_total_credentials": 1,
+    "timestamp": "2025-11-12T04:23:42.000Z"
+  }
+]

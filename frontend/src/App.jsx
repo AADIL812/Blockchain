@@ -26,6 +26,19 @@ const VAULT_ABI = [
         "internalType": "string",
         "name": "service",
         "type": "string"
+      },
+      // --- ADDING THE MISSING FIELDS FROM YOUR CONTRACT ---
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "timestamp",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "userCount",
+        "type": "uint256"
       }
     ],
     "name": "CredentialStored",
@@ -66,6 +79,34 @@ const VAULT_ABI = [
     "stateMutability": "view",
     "type": "function"
   },
+  // --- ADDING THE MISSING GETTER FUNCTIONS ---
+  {
+    "inputs": [],
+    "name": "getTotalCredentialCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getMyCredentialCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  // --- END OF ADDED FUNCTIONS ---
   {
     "inputs": [
       {
@@ -201,7 +242,18 @@ function App() {
       const stringShares = shares.map(share => share.toString('hex'));
 
       setMessage("Storing credential and key shares... Please approve in your wallet.");
-      const tx = await contract.storeCredential(service, username, encryptedPassword, stringShares);
+      
+      // --- THIS IS THE FIX ---
+      // We added a high gasLimit to prevent the transaction from failing
+      const tx = await contract.storeCredential(
+        service, 
+        username, 
+        encryptedPassword, 
+        stringShares,
+        { gasLimit: 1_000_000 } // <-- FIX: Set manual gas limit
+      );
+      // --- END OF FIX ---
+      
       await tx.wait(); // Wait for the transaction to be mined
 
       setMessage("Credential stored successfully!");
@@ -229,6 +281,13 @@ function App() {
       setMessage("Fetching credentials from local blockchain...");
       const storedCreds = await contract.getCredentials();
       
+      // Check if storedCreds is empty or undefined
+      if (!storedCreds || storedCreds.length === 0) {
+        setMessage("No credentials found for this account.");
+        setAllCredentials([]);
+        return;
+      }
+
       const formattedCreds = storedCreds.map(cred => ({
         service: cred.service,
         username: cred.username,
@@ -238,7 +297,7 @@ function App() {
 
       setAllCredentials(formattedCreds);
       setMessage(`Found ${formattedCreds.length} credentials.`);
-    } catch (error) { // <--- FIXED: Added the missing {
+    } catch (error) {
       console.error(error);
       setMessage(`Failed to fetch credentials: ${error.message}`);
     }
